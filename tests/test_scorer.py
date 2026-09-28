@@ -38,23 +38,26 @@ def test_single_token_words_match_manual_masked_softmax(tiny):
     logits = next_logits(tiny, [2, 3, 4])
     p = torch.softmax(logits, -1)[[5, 6, 8]]
     expected = (p / p.sum()).tolist()
-    assert [r.probs[w] for w in ["buy", "sell", "hold"]] == pytest.approx(expected, abs=1e-6)
-    assert r.coverage == pytest.approx(p.sum().item(), abs=1e-6)
+    assert [r.probabilities[w] for w in ["buy", "sell", "hold"]] == pytest.approx(expected, abs=1e-6)
+    assert r.confidence == pytest.approx(p.sum().item(), abs=1e-6)
+    assert r.decision == ["buy", "sell", "hold"][int(p.argmax())]
+    d = r.to_dict()
+    assert d["decision"] == r.decision and d["probabilities"] == r.probabilities
 
 
 def test_multi_token_words_follow_trie(tiny):
     words = ["buy", "strong buy", "strong sell"]
     r = make(tiny).score("the outlook is", words)
-    assert sum(r.probs.values()) == pytest.approx(1.0, abs=1e-6)
+    assert sum(r.probabilities.values()) == pytest.approx(1.0, abs=1e-6)
 
     ctx = [2, 9, 4]
     first = torch.softmax(next_logits(tiny, ctx), -1)[[5, 7]]
     first = first / first.sum()  # P(buy), P(strong)
     second = torch.softmax(next_logits(tiny, ctx + [7]), -1)[[5, 6]]
     second = second / second.sum()  # P(buy | strong), P(sell | strong)
-    assert r.probs["buy"] == pytest.approx(first[0].item(), abs=1e-6)
-    assert r.probs["strong buy"] == pytest.approx((first[1] * second[0]).item(), abs=1e-6)
-    assert r.probs["strong sell"] == pytest.approx((first[1] * second[1]).item(), abs=1e-6)
+    assert r.probabilities["buy"] == pytest.approx(first[0].item(), abs=1e-6)
+    assert r.probabilities["strong buy"] == pytest.approx((first[1] * second[0]).item(), abs=1e-6)
+    assert r.probabilities["strong sell"] == pytest.approx((first[1] * second[1]).item(), abs=1e-6)
 
 
 def test_batching_with_padding_does_not_change_scores(tiny):
@@ -74,7 +77,7 @@ def test_sequence_mode_renormalises_word_likelihoods(tiny):
     r = make(tiny, mode="sequence").score("the stock is", words)
     total = sum(r.unconstrained_probs.values())
     for w in words:
-        assert r.probs[w] == pytest.approx(r.unconstrained_probs[w] / total, abs=1e-6)
+        assert r.probabilities[w] == pytest.approx(r.unconstrained_probs[w] / total, abs=1e-6)
 
 
 def test_trie_mode_rejects_prefix_words(tiny):
@@ -83,8 +86,8 @@ def test_trie_mode_rejects_prefix_words(tiny):
 
 
 def test_temperature_decoder_sharpens(tiny):
-    base = make(tiny).score("the stock is", ["buy", "sell"]).probs
-    sharp = make(tiny, decoder=make_temperature_decoder(0.1)).score("the stock is", ["buy", "sell"]).probs
+    base = make(tiny).score("the stock is", ["buy", "sell"]).probabilities
+    sharp = make(tiny, decoder=make_temperature_decoder(0.1)).score("the stock is", ["buy", "sell"]).probabilities
     top = max(base, key=base.get)
     assert sharp[top] > base[top]
 
@@ -104,8 +107,8 @@ def test_uniform_custom_decoder(tiny):
         return p
 
     r = make(tiny, decoder=uniform).score("the stock is", ["buy", "sell", "strong buy", "strong sell"])
-    assert r.probs["buy"] == pytest.approx(1 / 3)
-    assert r.probs["strong sell"] == pytest.approx(1 / 6)
+    assert r.probabilities["buy"] == pytest.approx(1 / 3)
+    assert r.probabilities["strong sell"] == pytest.approx(1 / 6)
 
 
 def test_user_decoder_matches_builtin(tiny):

@@ -7,6 +7,7 @@ Usage:
 
 import argparse
 import importlib
+import json
 import sys
 import time
 from pathlib import Path
@@ -23,38 +24,42 @@ def load_decoder(spec: str):
     return getattr(importlib.import_module(module_name), func_name or "decoder")
 
 
-def run(config: dict, scorer: ConstrainedScorer) -> pd.DataFrame:
-    records = []
+def run(config: dict, scorer: ConstrainedScorer) -> tuple[pd.DataFrame, list[dict]]:
+    """Score every prompt; return a long table and one Jev-style decision per prompt."""
+    records, decisions = [], []
     for exp in config["experiments"]:
-        name, words = exp["name"], [str(w) for w in exp["words"]]
+        name = exp["name"]
+        # "words" is the older name for "answers".
+        answers = [str(a) for a in exp.get("answers", exp.get("words", []))]
         for k, prompt in enumerate(exp["prompts"]):
             r = scorer.score(
                 prompt,
-                words,
+                answers,
                 system_prompt=exp.get("system_prompt"),
                 leading_space=exp.get("leading_space"),
             )
-            for w in words:
+            decisions.append({"experiment": name, "prompt_id": k, **r.to_dict()})
+            for a in answers:
                 records.append(
                     {
                         "experiment": name,
                         "prompt_id": k,
                         "prompt": prompt,
-                        "word": w,
-                        "prob": r.probs[w],
-                        "unconstrained_prob": r.unconstrained_probs[w],
-                        "coverage": r.coverage,
-                        "top_word": r.top_word,
-                        "tokens": "|".join(r.tokens[w]),
+                        "answer": a,
+                        "probability": r.probabilities[a],
+                        "unconstrained_prob": r.unconstrained_probs[a],
+                        "decision": r.decision,
+                        "confidence": r.confidence,
+                        "tokens": "|".join(r.tokens[a]),
                     }
                 )
-    return pd.DataFrame.from_records(records)
+    return pd.DataFrame.from_records(records), decisions
 
 
 def print_report(df: pd.DataFrame) -> None:
     for name, g in df.groupby("experiment", sort=False):
-        wide = g.pivot_table(index="prompt_id", columns="word", values="prob", sort=False)
-        meta = g.groupby("prompt_id").agg(coverage=("coverage", "first"), top=("top_word", "first"),
+        wide = g.pivot_table(index="prompt_id", columns="answer", values="probability", sort=False)
+        meta = g.groupby("prompt_id").agg(decision=("decision", "first"), confidence=("confidence", "first"),
                                           prompt=("prompt", "first"))
         meta["prompt"] = meta["prompt"].str.slice(0, 60)
         print(f"\n=== {name} ===")
@@ -86,14 +91,15 @@ def main(argv=None) -> None:
     print(f"Loaded in {time.time() - t0:.1f}s; decoder={decoder_spec}, mode={scorer.mode}")
 
     t0 = time.time()
-    df = run(config, scorer)
+    df, decisions = run(config, scorer)
     print_report(df)
 
     out = Path(args.out or f"results/{Path(args.config).stem}_{time.strftime('%Y%m%d_%H%M%S')}.csv")
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out, index=False)
-    print(f"\n{df['prompt_id'].groupby(df['experiment']).nunique().sum()} prompts in "
-          f"{time.time() - t0:.1f}s. Saved {out}")
+    jsonl = out.with_suffix(".jsonl")
+    jsonl.write_text("".join(json.dumps(d) + "\n" for d in decisions))
+    print(f"\n{len(decisions)} prompts in {time.time() - t0:.1f}s. Saved {out} and {jsonl}")
 
 
 if __name__ == "__main__":

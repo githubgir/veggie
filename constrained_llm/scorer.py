@@ -1,6 +1,9 @@
-"""Constrained scoring of candidate answer words with a causal LM.
+"""Constrained scoring of a fixed set of answers (an enum) with a causal LM.
 
-Words often span several tokens (e.g. "bearish" -> ["bear", "ish"]). The
+The result is a typed decision: the chosen answer, a probability for every
+answer and a confidence score.
+
+Answers often span several tokens (e.g. "bearish" -> ["bear", "ish"]). The
 candidates are arranged in a token trie; at every trie node the model's
 logits are passed to the decoder with the node's children as the allowed
 set. A word's probability is the product of the decoder probabilities along
@@ -21,21 +24,36 @@ MODES = ("trie", "sequence")
 
 @dataclass
 class ScoreResult:
+    """A typed decision: one answer from a fixed enum, with probabilities."""
+
     prompt: str
-    words: list[str]
-    probs: dict[str, float]
-    # Probability of each full word under the unrestricted model.
+    answers: list[str]
+    # Probability of each answer after the decoder; sums to one.
+    probabilities: dict[str, float]
+    # Probability of each full answer under the unrestricted model.
     unconstrained_probs: dict[str, float]
     tokens: dict[str, list[str]] = field(default_factory=dict)
 
     @property
-    def coverage(self) -> float:
-        """Share of the unrestricted model's mass that falls on the candidates."""
-        return sum(self.unconstrained_probs.values())
+    def decision(self) -> str:
+        """The most probable answer."""
+        return max(self.probabilities, key=self.probabilities.get)
 
     @property
-    def top_word(self) -> str:
-        return max(self.probs, key=self.probs.get)
+    def confidence(self) -> float:
+        """Share of the unrestricted model's mass that falls on the allowed answers.
+
+        Low confidence means the model would rather have said something else.
+        """
+        return sum(self.unconstrained_probs.values())
+
+    def to_dict(self) -> dict:
+        return {
+            "prompt": self.prompt,
+            "decision": self.decision,
+            "confidence": self.confidence,
+            "probabilities": self.probabilities,
+        }
 
 
 class ConstrainedScorer:
@@ -111,12 +129,14 @@ class ConstrainedScorer:
     def score(
         self,
         prompt: str,
-        words: list[str],
+        answers: list[str],
         system_prompt: str | None = None,
         leading_space: bool | None = None,
     ) -> ScoreResult:
+        """Return a decision over ``answers`` (an enum) for ``prompt``."""
+        words = list(answers)
         if len(set(words)) != len(words):
-            raise ValueError(f"duplicate words in {words}")
+            raise ValueError(f"duplicate answers in {words}")
         ctx = self.context_ids(prompt, system_prompt)
         seqs = [self.word_ids(w, leading_space) for w in words]
         _check_distinct(words, seqs, allow_prefixes=self.mode == "sequence")
@@ -155,14 +175,14 @@ class ConstrainedScorer:
 
         return ScoreResult(
             prompt=prompt,
-            words=list(words),
-            probs=dict(zip(words, word_probs)),
+            answers=words,
+            probabilities=dict(zip(words, word_probs)),
             unconstrained_probs=dict(zip(words, unconstrained_logp.exp().tolist())),
             tokens={w: self.tokenizer.convert_ids_to_tokens(s) for w, s in zip(words, seqs)},
         )
 
-    def score_many(self, prompts: list[str], words: list[str], **kwargs) -> list[ScoreResult]:
-        return [self.score(p, words, **kwargs) for p in prompts]
+    def score_many(self, prompts: list[str], answers: list[str], **kwargs) -> list[ScoreResult]:
+        return [self.score(p, answers, **kwargs) for p in prompts]
 
     # --------------------------------------------------------------- internals
 

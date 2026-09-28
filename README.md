@@ -1,9 +1,16 @@
-# Constrained-vocabulary LLM scoring
+# Toy typed-decision model
 
 Run a small open-source LLM on CPU, but let **your own decoder function**
-decide what it may output. You give a prompt and a short list of allowed
-words. The decoder sets the probability of every other token to 0 and rescales
-the rest, and you get back a probability for each allowed word.
+decide what it may output. You give a prompt and a fixed list of allowed
+answers (an enum). The decoder sets the probability of every other token to 0
+and rescales the rest. Instead of text, you get back a typed decision:
+
+```json
+{"decision": "bullish", "confidence": 0.91,
+ "probabilities": {"bullish": 0.87, "bearish": 0.04, "neutral": 0.09}}
+```
+
+This is a toy take on "System One" decision models such as TypeSafe's Jev.
 
 ## Setup
 
@@ -26,16 +33,19 @@ python run_experiments.py experiments.yaml
 python run_experiments.py experiments.yaml --decoder my_decoder:sharp_decoder --out results/sharp.csv
 ```
 
-Edit `experiments.yaml` to add prompts and allowed words. Each run prints a
-table per experiment and writes a long-format CSV to `results/` with these columns:
+Edit `experiments.yaml` to add prompts and each experiment's `answers`. Each
+run prints a table per experiment and writes two files to `results/`:
+
+- `<name>.jsonl`: one decision per prompt, in the format shown above.
+- `<name>.csv`: one row per prompt and answer, with these columns:
 
 | column | meaning |
 |---|---|
-| `prob` | probability of the word after your decoder (sums to 1 per prompt) |
-| `unconstrained_prob` | probability the unrestricted model gives the whole word |
-| `coverage` | sum of `unconstrained_prob` over the allowed words. If it's low, the model didn't want to answer with any of them, so improve the prompt |
-| `top_word` | the allowed word with the highest `prob` |
-| `tokens` | how the word was split into tokens |
+| `probability` | probability of the answer after your decoder (sums to 1 per prompt) |
+| `unconstrained_prob` | probability the unrestricted model gives the whole answer |
+| `decision` | the answer with the highest `probability` |
+| `confidence` | sum of `unconstrained_prob` over the allowed answers. If it's low, the model didn't want to give any of them, so improve the prompt |
+| `tokens` | how the answer was split into tokens |
 
 ## Write your own decoder
 
@@ -53,18 +63,18 @@ The scorer checks that whatever you return is non-negative, zero outside
 `allowed_ids` and sums to 1. Point the config at your decoder with
 `decoder: my_decoder:your_function`.
 
-## Words with more than one token
+## Answers with more than one token
 
-Words like `stagflation` are several tokens. In `mode: trie` (the default), the
-allowed words form a token tree. Your decoder runs at each branch point, with
-the next tokens that can continue some allowed word as `allowed_ids`. A word's
-probability is the product along its path. With single-token words this is one
-masked softmax.
+Answers like `stagflation` are several tokens. In `mode: trie` (the default),
+the allowed answers form a token tree. Your decoder runs at each branch point,
+with the next tokens that can continue some allowed answer as `allowed_ids`.
+An answer's probability is the product along its path. With single-token
+answers this is one masked softmax.
 
-If one word is a token prefix of another (for example `buy` and `buy more`),
-the tree can't tell where the shorter word ends. Use `mode: sequence` for that
-case: it scores each whole word under the plain model and passes the vector
-of word log-probabilities to your decoder as the "logits".
+If one answer is a token prefix of another (for example `buy` and `buy more`),
+the tree can't tell where the shorter answer ends. Use `mode: sequence` for
+that case: it scores each whole answer under the plain model and passes the
+vector of answer log-probabilities to your decoder as the "logits".
 
 ## From Python
 
@@ -72,7 +82,7 @@ of word log-probabilities to your decoder as the "logits".
 from constrained_llm import ConstrainedScorer
 s = ConstrainedScorer(system_prompt="Answer with one word.")
 r = s.score("Is gold a risk-off asset?", ["Yes", "No"])
-r.probs, r.coverage
+r.decision, r.confidence, r.probabilities   # or r.to_dict()
 ```
 
 ## Tests
