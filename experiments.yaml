@@ -1,0 +1,29 @@
+# Edit this file, then run:  python run_experiments.py experiments.yaml
+
+model: Qwen/Qwen2.5-0.5B-Instruct   # any HF causal LM id or local path
+decoder: my_decoder:decoder         # module:function
+mode: trie                          # trie | sequence (see README)
+use_chat_template: true
+system_prompt: "Answer with exactly one word."
+
+experiments:
+  - name: headline_sentiment
+    # Optional per-experiment override of the global system prompt.
+    system_prompt: "You are a financial analyst. Answer with exactly one word."
+    words: [bullish, bearish, neutral]
+    prompts:
+      - "Headline: 'Apple beats earnings expectations and raises guidance.' Is this bullish, bearish or neutral for the stock?"
+      - "Headline: 'Regulators open antitrust probe into the company's core business.' Is this bullish, bearish or neutral for the stock?"
+      - "Headline: 'The company will hold its annual meeting on Tuesday.' Is this bullish, bearish or neutral for the stock?"
+
+  - name: macro_regime
+    words: [inflation, recession, growth, stagflation]
+    prompts:
+      - "CPI is rising fast while GDP contracts and unemployment climbs. Which regime is this: inflation, recession, growth or stagflation?"
+      - "GDP is growing 3%, unemployment is low and inflation is at target. Which regime is this: inflation, recession, growth or stagflation?"
+
+  - name: yes_no
+    words: ["Yes", "No"]
+    prompts:
+      - "Is the Federal Reserve the central bank of the United States?"
+      - "Is Paris the capital of Germany?"
