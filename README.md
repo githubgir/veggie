@@ -31,6 +31,7 @@ Other small options: `HuggingFaceTB/SmolLM2-360M-Instruct`,
 ```bash
 python run_experiments.py experiments.yaml
 python run_experiments.py experiments.yaml --decoder my_decoder:sharp_decoder --out results/sharp.csv
+python run_experiments.py experiments.yaml --chat-completion
 ```
 
 Edit `experiments.yaml` to add prompts and each experiment's `answers`. Each
@@ -46,6 +47,14 @@ run prints a table per experiment and writes two files to `results/`:
 | `decision` | the answer with the highest `probability` |
 | `confidence` | sum of `unconstrained_prob` over the allowed answers. If it's low, the model didn't want to give any of them, so improve the prompt |
 | `tokens` | how the answer was split into tokens |
+
+To compare against unconstrained generation, use `--chat-completion`. It
+generates a greedy response from the same prompt and system message without
+applying the decoder or adding the answer list to the prompt. The output CSV
+and JSONL contain the full `completion` and `matched_answer` (an exact match
+against one of the configured answers, when present). Use `--max-new-tokens`
+to change the generation limit; chat runs are saved with a `_chat` filename
+suffix by default.
 
 ## Write your own decoder
 

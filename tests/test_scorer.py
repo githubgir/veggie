@@ -118,3 +118,23 @@ def test_user_decoder_matches_builtin(tiny):
     allowed = torch.tensor([3, 5, 7])
     assert torch.allclose(decoder(logits, allowed), restrict_and_renormalize(logits, allowed), atol=1e-6)
     assert math.isclose(decoder(logits, allowed).sum().item(), 1.0, abs_tol=1e-6)
+
+
+def test_chat_completion_generates_from_the_scoring_context(tiny):
+    scorer = make(tiny)
+    context = scorer.context_ids("the stock is")
+    with torch.no_grad():
+        generated = scorer.model.generate(
+            input_ids=torch.tensor([context]),
+            max_new_tokens=2,
+            do_sample=False,
+            pad_token_id=scorer.tokenizer.pad_token_id,
+        )
+    expected = scorer.tokenizer.decode(generated[0, len(context) :], skip_special_tokens=True).strip()
+
+    assert scorer.chat_complete("the stock is", max_new_tokens=2) == expected
+
+
+def test_chat_completion_rejects_empty_generation_limit(tiny):
+    with pytest.raises(ValueError, match="at least 1"):
+        make(tiny).chat_complete("the stock is", max_new_tokens=0)

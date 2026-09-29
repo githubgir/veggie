@@ -184,6 +184,30 @@ class ConstrainedScorer:
     def score_many(self, prompts: list[str], answers: list[str], **kwargs) -> list[ScoreResult]:
         return [self.score(p, answers, **kwargs) for p in prompts]
 
+    @torch.no_grad()
+    def chat_complete(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        max_new_tokens: int = 32,
+    ) -> str:
+        """Generate an unrestricted greedy completion from the scoring context."""
+        if max_new_tokens < 1:
+            raise ValueError("max_new_tokens must be at least 1")
+        context = self.context_ids(prompt, system_prompt)
+        input_ids = torch.tensor([context], dtype=torch.long, device=self.device)
+        pad_id = self.tokenizer.pad_token_id
+        if pad_id is None:
+            pad_id = self.tokenizer.eos_token_id
+        output = self.model.generate(
+            input_ids=input_ids,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            pad_token_id=pad_id,
+        )
+        completion_ids = output[0, input_ids.shape[1] :]
+        return self.tokenizer.decode(completion_ids, skip_special_tokens=True).strip()
+
     # --------------------------------------------------------------- internals
 
     def _trie_probs(self, seqs: list[list[int]], step_logits) -> list[float]:

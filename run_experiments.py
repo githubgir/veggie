@@ -56,6 +56,36 @@ def run(config: dict, scorer: ConstrainedScorer) -> tuple[pd.DataFrame, list[dic
     return pd.DataFrame.from_records(records), decisions
 
 
+def run_chat_completions(
+    config: dict, scorer: ConstrainedScorer, max_new_tokens: int
+) -> tuple[pd.DataFrame, list[dict]]:
+    """Generate an unrestricted chat completion for each configured prompt."""
+    records = []
+    for exp in config["experiments"]:
+        name = exp["name"]
+        answers = [str(a) for a in exp.get("answers", exp.get("words", []))]
+        for prompt_id, prompt in enumerate(exp["prompts"]):
+            completion = scorer.chat_complete(
+                prompt,
+                system_prompt=exp.get("system_prompt"),
+                max_new_tokens=max_new_tokens,
+            )
+            normalized = completion.strip().casefold().rstrip(".!?")
+            matched_answer = next((a for a in answers if a.casefold() == normalized), None)
+            records.append(
+                {
+                    "experiment": name,
+                    "prompt_id": prompt_id,
+                    "prompt": prompt,
+                    "answers": "|".join(answers),
+                    "completion": completion,
+                    "matched_answer": matched_answer,
+                }
+            )
+    df = pd.DataFrame.from_records(records)
+    return df, records
+
+
 def print_report(df: pd.DataFrame) -> None:
     for name, g in df.groupby("experiment", sort=False):
         wide = g.pivot_table(index="prompt_id", columns="answer", values="probability", sort=False)
@@ -73,6 +103,12 @@ def main(argv=None) -> None:
     ap.add_argument("--model", help="override the model in the config")
     ap.add_argument("--decoder", help="override the decoder, as module:function")
     ap.add_argument("--mode", choices=["trie", "sequence"], help="override the scoring mode")
+    ap.add_argument(
+        "--chat-completion",
+        action="store_true",
+        help="generate unrestricted greedy responses instead of constrained scores",
+    )
+    ap.add_argument("--max-new-tokens", type=int, default=32, help="chat completion length limit")
     args = ap.parse_args(argv)
 
     config = yaml.safe_load(Path(args.config).read_text())
@@ -91,10 +127,18 @@ def main(argv=None) -> None:
     print(f"Loaded in {time.time() - t0:.1f}s; decoder={decoder_spec}, mode={scorer.mode}")
 
     t0 = time.time()
-    df, decisions = run(config, scorer)
-    print_report(df)
+    if args.chat_completion:
+        df, decisions = run_chat_completions(config, scorer, args.max_new_tokens)
+        print(df[["experiment", "prompt_id", "completion", "matched_answer"]].to_string(index=False))
+    else:
+        df, decisions = run(config, scorer)
+        print_report(df)
 
-    out = Path(args.out or f"results/{Path(args.config).stem}_{time.strftime('%Y%m%d_%H%M%S')}.csv")
+    suffix = "_chat" if args.chat_completion else ""
+    out = Path(
+        args.out
+        or f"results/{Path(args.config).stem}{suffix}_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+    )
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out, index=False)
     jsonl = out.with_suffix(".jsonl")
