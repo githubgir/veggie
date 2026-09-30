@@ -1,5 +1,5 @@
 torch>=2.2
-transformers>=4.45
+transformers>=4.56   # from_pretrained(dtype=...)
 pandas>=2.0
 pyyaml>=6.0
 pytest>=7.0

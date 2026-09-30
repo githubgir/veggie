@@ -66,6 +66,9 @@ class ConstrainedScorer:
     use_chat_template : wrap prompts in the model's chat template. Defaults to
         True when the tokenizer has one.
     system_prompt : optional system message when using the chat template.
+    device : torch device for the model, e.g. "cpu" or "cuda".
+    dtype : weights dtype, e.g. ``torch.float32`` or ``torch.bfloat16``.
+        Logits are always cast to float32 on the CPU before the decoder runs.
     mode : "trie" applies the decoder token by token (default). "sequence"
         computes each word's full log-probability under the unrestricted
         model and passes the vector of word log-probs to the decoder, which
@@ -81,6 +84,7 @@ class ConstrainedScorer:
         system_prompt: str | None = None,
         mode: str = "trie",
         device: str = "cpu",
+        dtype: torch.dtype = torch.float32,
         model=None,
         tokenizer=None,
         validate_decoder: bool = True,
@@ -88,7 +92,7 @@ class ConstrainedScorer:
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
         self.tokenizer = tokenizer or AutoTokenizer.from_pretrained(model_name)
-        self.model = model or AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.float32)
+        self.model = model or AutoModelForCausalLM.from_pretrained(model_name, dtype=dtype)
         self.model.to(device).eval()
         self.device = device
         self.decoder = decoder

@@ -26,6 +26,31 @@ Other small options: `HuggingFaceTB/SmolLM2-360M-Instruct`,
 `HuggingFaceTB/SmolLM2-135M-Instruct` (smallest), `Qwen/Qwen2.5-1.5B-Instruct`
 (better answers, slower).
 
+## Run on a GPU (Hugging Face Jobs)
+
+The scorer needs the model's full next-token logits, so the hosted Inference
+API won't do; you run the model yourself. `scripts/hf_job.sh` launches a
+[Hugging Face Job](https://huggingface.co/docs/huggingface_hub/guides/jobs)
+(needs a Pro, Team or Enterprise account) that downloads the pushed branch,
+runs `pytest -q`, then runs the experiments with `--device cuda`:
+
+```bash
+pip install -U huggingface_hub && hf auth login        # once, on your machine
+scripts/hf_job.sh                                       # t4-small, current branch
+FLAVOR=l4x1 scripts/hf_job.sh --dtype bfloat16 --model Qwen/Qwen2.5-7B-Instruct
+CHAT=1 RESULTS_REPO=<you>/veggie-results scripts/hf_job.sh   # + chat baseline, upload results/
+```
+
+The job's disk is deleted when it ends: every result CSV and JSONL file is
+printed at the end of the log (`hf jobs logs <job-id>`), and `RESULTS_REPO` also uploads
+`results/` to a private dataset repo. Only pushed commits are run.
+
+Locally or elsewhere, pick the device and precision with `--device auto|cpu|cuda`
+and `--dtype float32|bfloat16|float16`, or `device:` / `dtype:` in
+`experiments.yaml`. `auto` uses the GPU when there is one. `float32` is fine
+up to ~1.5B parameters; use `bfloat16` for larger models (on an L4/A10G/A100;
+a T4 has no native bfloat16). Your decoder always gets float32 logits on the CPU.
+
 ## Run the experiments
 
 ```bash

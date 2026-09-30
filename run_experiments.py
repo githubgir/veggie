@@ -3,6 +3,7 @@
 Usage:
     python run_experiments.py experiments.yaml
     python run_experiments.py experiments.yaml --out results/run1.csv --decoder my_decoder:sharp_decoder
+    python run_experiments.py experiments.yaml --device cuda --dtype bfloat16
 """
 
 import argparse
@@ -13,6 +14,7 @@ import time
 from pathlib import Path
 
 import pandas as pd
+import torch
 import yaml
 
 from constrained_llm import DEFAULT_MODEL, ConstrainedScorer
@@ -22,6 +24,17 @@ def load_decoder(spec: str):
     module_name, _, func_name = spec.partition(":")
     sys.path.insert(0, str(Path.cwd()))
     return getattr(importlib.import_module(module_name), func_name or "decoder")
+
+
+DTYPES = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}
+
+
+def resolve_device(spec: str) -> str:
+    if spec == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if spec.startswith("cuda") and not torch.cuda.is_available():
+        raise SystemExit(f"--device {spec} requested but no CUDA GPU is available")
+    return spec
 
 
 def run(config: dict, scorer: ConstrainedScorer) -> tuple[pd.DataFrame, list[dict]]:
@@ -103,6 +116,8 @@ def main(argv=None) -> None:
     ap.add_argument("--model", help="override the model in the config")
     ap.add_argument("--decoder", help="override the decoder, as module:function")
     ap.add_argument("--mode", choices=["trie", "sequence"], help="override the scoring mode")
+    ap.add_argument("--device", help="cpu, cuda, cuda:1 or auto (default: config, else auto)")
+    ap.add_argument("--dtype", choices=list(DTYPES), help="model weights dtype (default: config, else float32)")
     ap.add_argument(
         "--chat-completion",
         action="store_true",
@@ -114,8 +129,12 @@ def main(argv=None) -> None:
     config = yaml.safe_load(Path(args.config).read_text())
     model = args.model or config.get("model", DEFAULT_MODEL)
     decoder_spec = args.decoder or config.get("decoder", "my_decoder:decoder")
+    device = resolve_device(args.device or config.get("device", "auto"))
+    dtype = args.dtype or config.get("dtype", "float32")
+    if dtype not in DTYPES:
+        raise SystemExit(f"dtype must be one of {list(DTYPES)}, got {dtype!r}")
 
-    print(f"Loading {model} ...", flush=True)
+    print(f"Loading {model} on {device} ({dtype}) ...", flush=True)
     t0 = time.time()
     scorer = ConstrainedScorer(
         model,
@@ -123,6 +142,8 @@ def main(argv=None) -> None:
         use_chat_template=config.get("use_chat_template"),
         system_prompt=config.get("system_prompt"),
         mode=args.mode or config.get("mode", "trie"),
+        device=device,
+        dtype=DTYPES[dtype],
     )
     print(f"Loaded in {time.time() - t0:.1f}s; decoder={decoder_spec}, mode={scorer.mode}")
 

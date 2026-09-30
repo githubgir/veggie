@@ -62,7 +62,8 @@ headline sentiment or macro regimes.
 | `experiments.yaml` | **Edit this**: model, decoder, system prompt; experiments with `answers` and `prompts` |
 | `my_decoder.py` | **Edit this**: your decoder function(s) |
 | `constrained_llm/` | Scorer and built-in decoders |
-| `run_experiments.py` | Command-line runner |
+| `run_experiments.py` | Command-line runner (`--device`, `--dtype` for GPU) |
+| `scripts/hf_job.sh` | Runs tests + experiments on a Hugging Face Jobs GPU |
 | `tests/test_scorer.py` | Tests on a tiny random GPT-2, so no download is needed |
 
 ## Run
@@ -85,7 +86,10 @@ python run_experiments.py experiments.yaml --decoder my_decoder:sharp_decoder
 - **It has never been run on a real model.** The cloud sandbox blocked
   huggingface.co. In Claude Code on the web, allow `huggingface.co`,
   `*.huggingface.co` and `*.hf.co` in the environment's network settings,
-  or run it locally.
+  run it locally, or run `scripts/hf_job.sh` on a Hugging Face Jobs GPU.
+- The `--device` / `--dtype` change and `scripts/hf_job.sh` were also pushed
+  untested (the sandbox also blocks PyPI, so no torch). The HF job runs
+  `pytest -q` first.
 - Possible next steps: look at real Qwen results and tune the prompts where
   confidence is low; try decoders with priors/weights or temperature; later,
   CSV input to produce a date × ticker probability panel for signals.

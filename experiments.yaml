@@ -3,6 +3,8 @@
 model: Qwen/Qwen2.5-0.5B-Instruct   # any HF causal LM id or local path
 decoder: my_decoder:decoder         # module:function
 mode: trie                          # trie | sequence (see README)
+device: auto                        # auto | cpu | cuda
+dtype: float32                      # float32 | bfloat16 | float16
 use_chat_template: true
 system_prompt: "Answer with exactly one word."
 
